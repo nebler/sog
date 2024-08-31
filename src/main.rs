@@ -1,6 +1,10 @@
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, io::StdoutLock, iter::Inspect};
+use std::{
+    collections::HashMap,
+    io::{StdoutLock, Write},
+    iter::Inspect,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Message {
@@ -12,7 +16,7 @@ struct Message {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Body {
-    #[serde(rename = "ms_id")]
+    #[serde(rename = "msg_id")]
     id: Option<usize>,
     in_reply_to: Option<usize>,
     #[serde(flatten)]
@@ -23,8 +27,17 @@ struct Body {
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 enum Payload {
-    Echo { echo: String },
-    EchoOk { echo: String },
+    Echo {
+        echo: String,
+    },
+    EchoOk {
+        echo: String,
+    },
+    Init {
+        node_id: String,
+        node_ids: Vec<String>,
+    },
+    InitOk,
 }
 
 struct EchoNode {
@@ -33,11 +46,7 @@ struct EchoNode {
 
 // as the node is executing it might also wanna send out messages
 impl EchoNode {
-    pub fn step(
-        &mut self,
-        input: Message,
-        output: &mut serde_json::Serializer<StdoutLock>,
-    ) -> anyhow::Result<()> {
+    pub fn step(&mut self, input: Message, output: &mut StdoutLock) -> anyhow::Result<()> {
         match input.body.payload {
             Payload::Echo { echo } => {
                 let reply = Message {
@@ -49,13 +58,28 @@ impl EchoNode {
                         payload: Payload::EchoOk { echo },
                     },
                 };
-                reply
-                    .serialize(output)
-                    .context("Serialize response to echo")?;
-
+                serde_json::to_writer(&mut *output, &reply)
+                    .context("Serialize response to init")?;
+                output.write_all(b"\n").context("write trailing newline")?;
                 self.id += 1;
             }
             Payload::EchoOk { echo } => {}
+            Payload::Init { .. } => {
+                let reply = Message {
+                    src: input.src,
+                    dst: input.dst,
+                    body: Body {
+                        id: Some(self.id),
+                        in_reply_to: input.body.id,
+                        payload: Payload::InitOk,
+                    },
+                };
+                serde_json::to_writer(&mut *output, &reply)
+                    .context("Serialize response to init")?;
+                output.write_all(b"\n").context("write trailing newline")?;
+                self.id += 1;
+            }
+            Payload::InitOk {} => {}
         }
 
         Ok(())
@@ -64,17 +88,14 @@ impl EchoNode {
 
 fn main() -> anyhow::Result<()> {
     let stdin = std::io::stdin().lock();
-    let stdout = std::io::stdout().lock();
-    let mut output = serde_json::Serializer::new(stdout);
-
-    let mut state = EchoNode { id: 0 };
-
     let inputs = serde_json::Deserializer::from_reader(stdin).into_iter::<Message>();
+    let mut stdout = std::io::stdout().lock();
 
     for input in inputs {
+        let mut state = EchoNode { id: 0 };
         let input = input.context("Maelstrom input from STDIN could not be deserialized")?;
         state
-            .step(input, &mut output)
+            .step(input, &mut stdout)
             .context("Node step funciton failed")?;
     }
 
