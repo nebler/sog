@@ -50,8 +50,8 @@ impl EchoNode {
         match input.body.payload {
             Payload::Echo { echo } => {
                 let reply = Message {
-                    src: input.src,
-                    dst: input.dst,
+                    src: input.dst,
+                    dst: input.src,
                     body: Body {
                         id: Some(self.id),
                         in_reply_to: input.body.id,
@@ -66,8 +66,8 @@ impl EchoNode {
             Payload::EchoOk { echo } => {}
             Payload::Init { .. } => {
                 let reply = Message {
-                    src: input.src,
-                    dst: input.dst,
+                    src: input.dst,
+                    dst: input.src,
                     body: Body {
                         id: Some(self.id),
                         in_reply_to: input.body.id,
