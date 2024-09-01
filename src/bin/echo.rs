@@ -7,15 +7,15 @@ use std::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Message {
+struct Message<Payload> {
     src: String,
     #[serde(rename = "dest")]
     dst: String,
-    body: Body,
+    body: Body<Payload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Body {
+struct Body<Payload> {
     #[serde(rename = "msg_id")]
     id: Option<usize>,
     in_reply_to: Option<usize>,
@@ -24,20 +24,9 @@ struct Body {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-enum Payload {
-    Echo {
-        echo: String,
-    },
-    EchoOk {
-        echo: String,
-    },
-    Init {
-        node_id: String,
-        node_ids: Vec<String>,
-    },
-    InitOk,
+pub struct init {
+    node_id: String,
+    node_ids: Vec<String>,
 }
 
 struct EchoNode {
@@ -63,7 +52,7 @@ impl EchoNode {
                 output.write_all(b"\n").context("write trailing newline")?;
                 self.id += 1;
             }
-            Payload::EchoOk { echo } => {}
+            Payload::EchoOk { .. } => {}
             Payload::Init { .. } => {
                 let reply = Message {
                     src: input.dst,
