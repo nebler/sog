@@ -4,19 +4,19 @@ use std::io::StdoutLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message<Payload> {
-    src: String,
+    pub src: String,
     #[serde(rename = "dest")]
-    dst: String,
-    body: Body<Payload>,
+    pub dst: String,
+    pub body: Body<Payload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Body<Payload> {
     #[serde(rename = "msg_id")]
-    id: Option<usize>,
-    in_reply_to: Option<usize>,
+    pub id: Option<usize>,
+    pub in_reply_to: Option<usize>,
     #[serde(flatten)]
-    payload: Payload,
+    pub payload: Payload,
 }
 
 pub trait Node<Payload> {
@@ -29,7 +29,7 @@ pub struct Init {
     node_ids: Vec<String>,
 }
 
-fn main_loop<S, Payload>(mut state: S) -> anyhow::Result<()>
+pub fn main_loop<S, Payload>(mut state: S) -> anyhow::Result<()>
 where
     S: Node<Payload>,
     Payload: DeserializeOwned,
