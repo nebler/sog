@@ -34,7 +34,7 @@ impl Node<(), Payload> for UniqueNode {
     fn step(&mut self, input: Message<Payload>, output: &mut StdoutLock) -> anyhow::Result<()> {
         match input.body.payload {
             Payload::Generate {} => {
-                let guid = format!("{}_{}", self.id, input.body.id.unwrap());
+                let guid = format!("{}_{}", self.id, self.node);
 
                 let reply = Message {
                     src: input.dst,
