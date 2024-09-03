@@ -1,6 +1,6 @@
 use anyhow::Context;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::io::StdoutLock;
+use std::io::{StdoutLock, Write};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message<Payload> {
@@ -36,21 +36,32 @@ pub trait Payload: Sized {
     fn extract_init(input: Self) -> Option<Init>;
     fn gen_init_ok() -> Self;
 }
-
 pub fn main_loop<S, N, P>(init_state: S) -> anyhow::Result<()>
 where
-    P: Payload + DeserializeOwned,
+    P: Payload + DeserializeOwned + Serialize,
     N: Node<S, P>,
 {
     let stdin = std::io::stdin().lock();
     let mut inputs = serde_json::Deserializer::from_reader(stdin).into_iter::<Message<P>>();
     let mut stdout = std::io::stdout().lock();
-    let init = inputs
+    let init_msg = inputs
         .next()
         .expect("no input message received")
         .context("init message could be deserailized")?;
-    let init = P::extract_init(init.body.payload).expect("first message should be init");
+    let init = P::extract_init(init_msg.body.payload).expect("first message should be init");
     let mut node: N = Node::from_init(init_state, init).context("node inialization failed")?;
+    let reply = Message {
+        src: init_msg.dst,
+        dst: init_msg.src,
+        body: Body {
+            id: Some(0),
+            in_reply_to: init_msg.body.id,
+            payload: P::gen_init_ok(),
+        },
+    };
+
+    serde_json::to_writer(&mut stdout, &reply).context("Serialize response to guid")?;
+    stdout.write_all(b"\n").context("write trailing newline")?;
     for input in inputs {
         let input = input.context("Maelstrom input from STDIN could not be deserialized")?;
         node.step(input, &mut stdout)

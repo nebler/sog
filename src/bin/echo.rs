@@ -73,5 +73,5 @@ impl Node<Payload> for EchoNode {
 }
 
 fn main() -> anyhow::Result<()> {
-    main_loop(EchoNode { id: 0 })
+    main_loop(EchoNode { id: 1 })
 }
