@@ -27,28 +27,35 @@ pub trait Node<S, Payload> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Init {
-    node_id: String,
-    node_ids: Vec<String>,
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+enum InitPayload {
+    Init(Init),
+    InitOk,
 }
 
-pub trait Payload: Sized {
-    fn extract_init(input: Self) -> Option<Init>;
-    fn gen_init_ok() -> Self;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Init {
+    pub node_id: String,
+    pub node_ids: Vec<String>,
 }
+
 pub fn main_loop<S, N, P>(init_state: S) -> anyhow::Result<()>
 where
-    P: Payload + DeserializeOwned + Serialize,
+    P: DeserializeOwned,
     N: Node<S, P>,
 {
-    let stdin = std::io::stdin().lock();
-    let mut inputs = serde_json::Deserializer::from_reader(stdin).into_iter::<Message<P>>();
+    let mut stdin = std::io::stdin().lock();
+
     let mut stdout = std::io::stdout().lock();
-    let init_msg = inputs
-        .next()
-        .expect("no input message received")
-        .context("init message could be deserailized")?;
-    let init = P::extract_init(init_msg.body.payload).expect("first message should be init");
+
+    let init_msg: Message<InitPayload> =
+        serde_json::from_reader(&mut stdin).expect("init message should always be present");
+
+    let InitPayload::Init(init) = init_msg.body.payload else {
+        panic!("first message should be init")
+    };
+
     let mut node: N = Node::from_init(init_state, init).context("node inialization failed")?;
     let reply = Message {
         src: init_msg.dst,
@@ -56,12 +63,14 @@ where
         body: Body {
             id: Some(0),
             in_reply_to: init_msg.body.id,
-            payload: P::gen_init_ok(),
+            payload: InitPayload::InitOk,
         },
     };
 
     serde_json::to_writer(&mut stdout, &reply).context("Serialize response to guid")?;
     stdout.write_all(b"\n").context("write trailing newline")?;
+
+    let inputs = serde_json::Deserializer::from_reader(stdin).into_iter::<Message<P>>();
     for input in inputs {
         let input = input.context("Maelstrom input from STDIN could not be deserialized")?;
         node.step(input, &mut stdout)
