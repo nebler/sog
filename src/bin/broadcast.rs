@@ -1,4 +1,7 @@
-use std::{collections::HashMap, io::Write};
+use std::{
+    collections::{HashMap, HashSet},
+    io::Write,
+};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -18,14 +21,17 @@ enum Payload {
     BroadcastOk,
     TopologyOk,
     ReadOk {
-        messages: Vec<usize>,
+        messages: HashSet<usize>,
     },
 }
 
 struct BroadcastNode {
     pub node: String,
     pub id: usize,
-    pub messages: Vec<usize>,
+    pub messages: HashSet<usize>,
+    known: HashMap<String, HashSet<usize>>,
+    msg_communicated: HashMap<usize, HashSet<usize>>,
+    neighborhood: Vec<String>,
 }
 
 impl Node<(), Payload> for BroadcastNode {
@@ -33,10 +39,17 @@ impl Node<(), Payload> for BroadcastNode {
     where
         Self: Sized,
     {
-        Ok(BroadcastNode {
+        Ok(Self {
             node: init.node_id,
             id: 1,
-            messages: Vec::new(),
+            messages: HashSet::new(),
+            known: init
+                .node_ids
+                .into_iter()
+                .map(|nid| (nid, HashSet::new()))
+                .collect(),
+            msg_communicated: HashMap::new(),
+            neighborhood: Vec::new(),
         })
     }
 
@@ -49,7 +62,7 @@ impl Node<(), Payload> for BroadcastNode {
         match reply.body.payload {
             Payload::Broadcast { message } => {
                 reply.body.payload = Payload::BroadcastOk;
-                self.messages.push(message);
+                self.messages.insert(message);
                 serde_json::to_writer(&mut *output, &reply)
                     .context("Could not write broadcastok")?;
                 output.write_all(b"\n").context("write trailing newline")?;
@@ -64,7 +77,10 @@ impl Node<(), Payload> for BroadcastNode {
                 output.write_all(b"\n").context("write trailing newline")?;
                 self.id += 1;
             }
-            Payload::Topology { .. } => {
+            Payload::Topology { mut topology } => {
+                self.neighborhood = topology
+                    .remove(&self.node)
+                    .unwrap_or_else(|| panic!("nope"));
                 reply.body.payload = Payload::TopologyOk {};
                 serde_json::to_writer(&mut *output, &reply)
                     .context("Could not write broadcastok")?;

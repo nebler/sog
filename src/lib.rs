@@ -60,7 +60,7 @@ pub struct Init {
 
 pub fn main_loop<S, N, P>(init_state: S) -> anyhow::Result<()>
 where
-    P: DeserializeOwned,
+    P: DeserializeOwned + Send + 'static,
     N: Node<S, P>,
 {
     let stdin = std::io::stdin().lock();
@@ -87,14 +87,31 @@ where
 
     serde_json::to_writer(&mut stdout, &reply).context("Serialize response to guid")?;
     stdout.write_all(b"\n").context("write trailing newline")?;
+    let (tx, rx) = std::sync::mpsc::channel();
 
-    for line in stdin {
-        let line = line.context("Maelstrom input from STDIN could not be read")?;
-        let input = serde_json::from_str(&line)
-            .context("Maelstrom input from STDIN could not be deserialized")?;
+    let stdin_tx = tx.clone();
+    drop(stdin);
+    let jh = std::thread::spawn(move || {
+        let stdin = std::io::stdin().lock();
+        for line in stdin.lines() {
+            let line = line.context("Maelstrom input from STDIN could not be read")?;
+            let input = serde_json::from_str(&line)
+                .context("Maelstrom input from STDIN could not be deserialized")?;
+            if let Err(_) = stdin_tx.send(input) {
+                return Ok::<_, anyhow::Error>(());
+            }
+        }
+
+        Ok(())
+    });
+
+    for input in rx {
         node.step(input, &mut stdout)
             .context("Node step funciton failed")?;
     }
 
+    jh.join()
+        .expect("stdin thread panicked")
+        .context("stdin thread err'd")?;
     Ok(())
 }
